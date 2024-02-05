@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/j-keck/arping"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/prometheus-community/pro-bing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,16 +29,58 @@ var (
 	}, []string{"ip"})
 )
 
+func arpPing(ip net.IP) (bool, error) {
+	_, _, err := arping.Ping(ip)
+	if err != nil {
+		// either timeout, or a worse error
+		return false, err
+	} else {
+		return true, nil
+	}
+}
+
+func icmpPing(ip net.IP) (bool, error) {
+	pinger, err := probing.NewPinger(ip.String())
+	if err != nil {
+		return false, err
+	}
+	pinger.Count = 1
+	pinger.Timeout = 500 * time.Millisecond
+	pinger.OnSend = func(p *probing.Packet) {
+		fmt.Println(p)
+	}
+	slog.Info("ICMP ping")
+	err = pinger.Run() // Blocks until finished.
+	if err != nil {
+		return false, err
+	}
+	stats := pinger.Statistics() // get send/receive/duplicate/rtt stats
+	return stats.PacketsRecv > 0, nil
+}
+
+func anybodyHome(ip net.IP) (bool, error) {
+	result, err := arpPing(ip)
+	if err == nil {
+		return result, nil
+	}
+
+	slog.Info("falling back to ICMP ping", "error", err)
+	return icmpPing(ip)
+}
+
 func wrapHandler(handler http.Handler, ips ...net.IP) func(rw http.ResponseWriter, req *http.Request) {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		for _, ip := range ips {
-			_, _, err := arping.Ping(ip)
-			if err == arping.ErrTimeout {
-				occupancy.WithLabelValues(fmt.Sprintf("%s", ip)).Set(0)
-			} else if err != nil {
-				slog.Error("failed to ping", "address", ip, "error", err)
+			home, err := anybodyHome(ip)
+			if err != nil {
+				slog.Warn("No response from ping", "error", err, "ip", ip.String())
+				continue
+			}
+
+			if home {
+				occupancy.WithLabelValues(ip.String()).Set(1)
 			} else {
-				occupancy.WithLabelValues(fmt.Sprintf("%s", ip)).Set(1)
+				occupancy.WithLabelValues(ip.String()).Set(0)
 			}
 		}
 		handler.ServeHTTP(rw, req)

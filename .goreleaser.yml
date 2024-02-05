@@ -1,0 +1,50 @@
+builds:
+  - main: .
+    binary: occupancy-exporter
+    flags: -tags netgo
+    ldflags:
+      - -s -w
+      - -X github.com/prometheus/common/version.BuildDate={{.Date}}
+      - -X github.com/prometheus/common/version.BuildUser=goreleaser
+      - -X github.com/prometheus/common/version.Revision={{.FullCommit}}
+      - -X main.version={{.Version}}
+
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - 386
+      - arm
+      - arm64
+    goarm:
+      - 6
+      - 7
+archives:
+  - name_template: "occupancy-exporter-{{ .Version }}.{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    wrap_in_directory: true
+checksum:
+  name_template: checksums.txt
+nfpms:
+  - homepage: https://github.com/mnbbrown/occupancy-exporter
+    maintainer: me@matthewbrown.io
+    description: Prometheus exporter to report on processes running
+    license: MIT
+    formats:
+      - deb
+    bindir: /usr/bin
+    contents:
+      - src: packaging/occupancy-exporter.service
+        dst: /lib/systemd/system/occupancy-exporter.service
+      - src: packaging/default/occupancy-exporter
+        dst: /etc/default/occupancy-exporter
+        type: config
+    scripts:
+      postinstall: "packaging/scripts/postinstall.sh"
+      postremove: "packaging/scripts/postremove.sh"
+      preremove: "packaging/scripts/preremove.sh"
+release:
+  github:
+    owner: mnbbrown
+    name: occupancy-exporter
+  draft: false
+  prerelease: auto

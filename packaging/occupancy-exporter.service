@@ -1,0 +1,12 @@
+[Unit]
+Description=Prometheus Exporter for occupancy using arp ping
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/occupancy-exporter
+ExecStart=/usr/bin/occupancy-exporter
+KillMode=process
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
